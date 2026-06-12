@@ -1,0 +1,5 @@
+[build]
+  command = "pip install -r requirements.txt"
+
+[functions]
+  node_bundler = "none"
