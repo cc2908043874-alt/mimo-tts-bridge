@@ -3,7 +3,7 @@ from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
 MIMO_KEY = os.environ.get("MIMO_KEY", "")
-CLIENT = OpenAI(api_key=sk-cpha9c00cnbs0ufyoap5gz16zx7qvf2n4jhcf8p3ooa4qyz4, base_url="https://api.xiaomimimo.com/v1")
+CLIENT = OpenAI(api_key=MIMO_KEY, base_url="https://api.xiaomimimo.com/v1")
 
 VOICES = {
     "default": "mimo_default", "冰糖": "冰糖", "茉莉": "茉莉",
