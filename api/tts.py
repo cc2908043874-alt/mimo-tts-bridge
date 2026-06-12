@@ -1,48 +1,45 @@
-import base64, json, os
-from http.server import BaseHTTPRequestHandler
-from openai import OpenAI
+import base64
+import json
+import os
 
 MIMO_KEY = os.environ.get("MIMO_KEY", "")
-CLIENT = OpenAI(api_key=MIMO_KEY, base_url="https://api.xiaomimimo.com/v1")
 
-VOICES = {
-    "default": "mimo_default", "冰糖": "冰糖", "茉莉": "茉莉",
-    "白桦": "白桦", "苏打": "苏打", "Mia": "Mia", "Chloe": "Chloe",
-}
 
-STYLES = {
-    "无": "", "东北话": "东北话", "四川话": "四川话", "粤语": "粤语",
-    "台湾腔": "台湾腔", "开心": "开心", "悄悄话": "悄悄话",
-}
+def handler(event, context):
+    """Netlify Python function handler"""
+    from openai import OpenAI
 
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path.startswith("/config"):
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            host = self.headers.get("Host", "")
-            cfg = {
-                "name": "MIMO TTS",
-                "url": f"https://{host}/api/tts",
-                "method": "POST",
-                "body": "text={{encodeURIComponent(speakText)}}&speed={{speakSpeed}}",
-                "contentType": "audio/mpeg"
-            }
-            self.wfile.write(json.dumps(cfg).encode())
-        elif self.path == "/" or self.path == "/api/tts":
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write("MIMO TTS OK".encode())
+    client = OpenAI(api_key=MIMO_KEY, base_url="https://api.xiaomimimo.com/v1")
 
-    def do_POST(self):
-        if self.path != "/api/tts":
-            self.send_response(404)
-            self.end_headers()
-            return
+    path = event.get("path", "/")
+    http_method = event.get("httpMethod", "GET")
 
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode()
+    # /config 接口：返回阅读App配置
+    if path == "/config":
+        host = event.get("headers", {}).get("host", "")
+        cfg = {
+            "name": "MIMO TTS",
+            "url": f"https://{host}/tts",
+            "method": "POST",
+            "body": "text={{encodeURIComponent(speakText)}}&speed={{speakSpeed}}",
+            "contentType": "audio/mpeg",
+        }
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps(cfg),
+        }
+
+    # / 首页
+    if path == "/":
+        return {
+            "statusCode": 200,
+            "body": "✅ MIMO TTS Bridge is running",
+        }
+
+    # /tts 接口
+    if path == "/tts" and http_method == "POST":
+        body = event.get("body", "")
         params = {}
         for p in body.split("&"):
             if "=" in p:
@@ -55,16 +52,35 @@ class handler(BaseHTTPRequestHandler):
         fmt = params.get("format", "mp3")
 
         if not text.strip():
-            self.send_response(400)
-            self.end_headers()
-            return
+            return {"statusCode": 400, "body": "empty text"}
 
-        voice = VOICES.get(voice_key, "mimo_default")
-        style_label = STYLES.get(style_key, "")
-        user_prompt = f"<style>{style_label}</style>语气自然一点" if style_label else "语气自然一点"
+        voice = {
+            "default": "mimo_default",
+            "冰糖": "冰糖",
+            "茉莉": "茉莉",
+            "白桦": "白桦",
+            "苏打": "苏打",
+            "Mia": "Mia",
+        }.get(voice_key, "mimo_default")
+
+        style_label = {
+            "无": "",
+            "东北话": "东北话",
+            "四川话": "四川话",
+            "粤语": "粤语",
+            "台湾腔": "台湾腔",
+            "开心": "开心",
+            "悄悄话": "悄悄话",
+        }.get(style_key, "")
+
+        user_prompt = (
+            f"<style>{style_label}</style>语气自然一点"
+            if style_label
+            else "语气自然一点"
+        )
 
         try:
-            resp = CLIENT.chat.completions.create(
+            resp = client.chat.completions.create(
                 model="mimo-v2.5-tts",
                 modalities=["text", "audio"],
                 audio={"voice": voice, "format": fmt},
@@ -75,11 +91,13 @@ class handler(BaseHTTPRequestHandler):
             )
             audio = base64.b64decode(resp.choices[0].message.audio.data)
             ct = "audio/mpeg" if fmt == "mp3" else "audio/wav"
-            self.send_response(200)
-            self.send_header("Content-Type", ct)
-            self.end_headers()
-            self.wfile.write(audio)
+            return {
+                "statusCode": 200,
+                "headers": {"Content-Type": ct},
+                "body": base64.b64encode(audio).decode(),
+                "isBase64Encoded": True,
+            }
         except Exception as e:
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(str(e).encode())
+            return {"statusCode": 500, "body": str(e)}
+
+    return {"statusCode": 404, "body": "not found"}
